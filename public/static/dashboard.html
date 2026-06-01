@@ -1,0 +1,1564 @@
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+
+<head>
+    <meta charset="UTF-8">
+    <title>{{T "title"}}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="author" content="sbwml <admin@cooluc.com>">
+    <script>
+        window.API_PREFIX = "{{.ApiPrefix}}";
+        window.STATIC_PREFIX = "{{.StaticPrefix}}";
+        window.I18N = {{json .I18n}};
+        window.CURRENT_LANG = "{{.Lang}}";
+
+        const originalFetch = window.fetch;
+        window.fetch = async function () {
+            const response = await originalFetch.apply(this, arguments);
+            if (!response.ok) {
+                const clone = response.clone();
+                try {
+                    const data = await clone.json();
+                    if (data && data.error) {
+                        setTimeout(() => {
+                            if (typeof customAlertModal === 'function') {
+                                customAlertModal(data.error, window.I18N['error'] || "Error");
+                            } else {
+                                alert(data.error);
+                            }
+                        }, 100);
+                        return Promise.reject(data);
+                    }
+                } catch (e) {
+                    // Ignore JSON parse error
+                }
+            }
+            return response;
+        };
+
+        function setLanguage(lang) {
+            document.cookie = "lang=" + lang + ";path=/;max-age=31536000";
+            location.reload();
+        }
+    </script>
+    <link rel="shortcut icon" href="{{.StaticPrefix}}favicon.svg" />
+    <script src="{{.StaticPrefix}}tailwindcss.js"></script>
+    <script src="{{.StaticPrefix}}vs/loader.js"></script>
+    <link href="{{.StaticPrefix}}fontawesome/fontawesome@7.2.0.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{.StaticPrefix}}xterm/xterm.min.css" />
+    <script>
+        // Monaco's loader defines 'define' globally, which conflicts with xterm.js's UMD build.
+        // We temporarily hide it to force xterm to fall back to attaching to the window object.
+        if (window.define) {
+            window.tempDefine = window.define;
+            window.define = undefined;
+        }
+    </script>
+    <script src="{{.StaticPrefix}}xterm/xterm.min.js"></script>
+    <script src="{{.StaticPrefix}}xterm/xterm-addon-attach.min.js"></script>
+    <script src="{{.StaticPrefix}}xterm/xterm-addon-fit.min.js"></script>
+    <script>
+        // Restore Monaco's define function
+        if (window.tempDefine) {
+            window.define = window.tempDefine;
+            window.tempDefine = undefined;
+        }
+    </script>
+    <link href="{{.StaticPrefix}}dark.css" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#6B7280',
+                        success: '#00B42A',
+                        warning: '#FF7D00',
+                        danger: '#F53F3F',
+                        dark: '#1D2129',
+                        light: '#F2F3F5',
+                        'border-color': '#E5E6EB'
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'card': '0 2px 8px 0 rgba(0, 0, 0, 0.08)',
+                        'modal': '0 4px 16px 0 rgba(0, 0, 0, 0.12)',
+                    }
+                },
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: #f1f1f1;
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: #dadce0;
+                border-radius: 4px;
+            }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: #bdc1c6;
+            }
+
+            /* Dark Modals Scrollbar (Fixed Dark) */
+            #editor-modal ::-webkit-scrollbar-track,
+            #terminal-modal ::-webkit-scrollbar-track {
+                background: #131314;
+            }
+
+            #editor-modal ::-webkit-scrollbar-thumb,
+            #terminal-modal ::-webkit-scrollbar-thumb {
+                background: #444746;
+                border-radius: 4px;
+            }
+
+            #editor-modal ::-webkit-scrollbar-thumb:hover,
+            #terminal-modal ::-webkit-scrollbar-thumb:hover {
+                background: #5f6368;
+            }
+
+            .dark ::-webkit-scrollbar-thumb:hover {
+                background: #718096;
+            }
+
+            @layer utilities {
+                .content-auto {
+                    content-visibility: auto;
+                }
+            .table-shadow {
+                box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            }
+            .file-row-hover {
+                @apply transition-all duration-200;
+            }
+            .file-row-hover:hover {
+                @apply bg-light;
+            }
+            .btn-hover {
+                @apply transition-all duration-200;
+            }
+            .btn-hover:hover {
+                @apply transform scale-105;
+            }
+            .fade-in {
+                animation: fadeIn 0.3s ease-in-out;
+            }
+            .slide-in {
+                animation: slideIn 0.3s ease-in-out;
+            }
+            .progress-animate {
+                transition: width 0.3s ease-in-out;
+            }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .file-drop-hover {
+            box-shadow: 0 0 0 4px #165DFF33, 0 2px 16px 0 rgba(22,93,255,0.15);
+            border: 2px dashed #165DFF;
+            transition: box-shadow 0.2s, border 0.2s;
+        }
+
+        .dark .file-drop-hover {
+            box-shadow: 0 0 0 4px rgba(138, 180, 248, 0.2), 0 2px 16px 0 rgba(0, 0, 0, 0.3);
+            border: 2px dashed #8ab4f8;
+        }
+
+        #upload-manager .fa-chevron-down {
+            transition: transform 0.3s ease;
+        }
+
+        #upload-manager.collapsed .fa-chevron-down {
+            transform: rotate(180deg);
+        }
+
+        #upload-manager-list .upload-item {
+            @apply flex items-center justify-between p-2 border-b border-gray-200;
+        }
+
+        #upload-manager-list .upload-item:last-child {
+            @apply border-b-0;
+        }
+
+        #upload-manager-list .file-info {
+            @apply flex-grow truncate;
+        }
+
+        #upload-manager-list .file-name {
+            @apply text-sm text-gray-800 truncate;
+        }
+
+        #upload-manager-list .upload-progress {
+            @apply w-full bg-gray-200 rounded-full h-1 mt-1;
+        }
+
+        #upload-manager-list .upload-progress-bar {
+            @apply bg-primary h-1 rounded-full;
+        }
+
+        #upload-manager-list .upload-status-container {
+            @apply flex justify-between text-xs text-gray-500;
+        }
+
+        #upload-manager-list .upload-actions button {
+            @apply text-gray-500 hover:text-gray-700 ml-2;
+        }
+
+        .shadow-sm {
+            background-color: #fff;
+        }
+
+        .dark #upload-manager {
+            background-color: #1e1f20 !important;
+            border: 1px solid #444746 !important;
+        }
+
+        .dark #upload-manager .bg-gray-100 {
+            background-color: #2d2e30 !important;
+            border-bottom: 1px solid #444746 !important;
+        }
+
+        .dark #upload-manager-list .upload-item {
+            @apply border-gray-700;
+        }
+
+        .dark #upload-manager-list .file-name {
+            @apply text-gray-300;
+        }
+
+        .dark #upload-manager-list .upload-progress {
+            @apply bg-gray-700;
+        }
+
+        .dark #upload-manager-list .upload-status {
+            @apply text-gray-400;
+        }
+
+        .dark #upload-manager-list .upload-actions button {
+            @apply text-gray-400 hover:text-gray-200;
+        }
+
+        #upload-manager {
+                position: fixed !important;
+            }
+
+            input[type="checkbox"] {
+                @apply appearance-none w-3.5 h-3.5 border border-gray-400 rounded cursor-pointer transition-all relative inline-block align-middle mb-0.5;
+            }
+
+            input[type="checkbox"]:checked {
+                @apply bg-primary border-primary;
+            }
+
+            input[type="checkbox"]:checked::after {
+                content: '\f00c';
+                font-family: 'FontAwesome';
+                pointer-events: none;
+                @apply absolute text-white text-[8px] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2;
+            }
+
+            .dark input[type="checkbox"] {
+                background-color: transparent !important;
+                border-color: #5f6368 !important;
+            }
+
+            .dark input[type="checkbox"]:checked {
+                background-color: #8ab4f8 !important;
+                border-color: #8ab4f8 !important;
+            }
+
+            .dark input[type="checkbox"]:checked::after {
+                color: #131314 !important;
+            }
+
+            #file-grid-view {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        /* Context Menu Submenu Styles */
+        .has-submenu {
+            position: relative;
+        }
+
+        .submenu {
+            display: none;
+            position: absolute;
+            left: 100%;
+            top: -5px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            padding: 0.5rem 0;
+            min-width: 160px;
+            z-index: 60;
+        }
+
+        .has-submenu:hover > .submenu {
+            display: block;
+        }
+
+        .file-grid-item {
+            @apply flex flex-col items-center p-2 rounded-lg transition-all duration-200 cursor-pointer;
+        }
+
+        .file-grid-item:hover {
+            @apply bg-light;
+        }
+
+        .file-grid-item.selected {
+            @apply bg-blue-100;
+        }
+
+        .file-grid-item .file-icon {
+            @apply flex items-center justify-center w-20 h-16 mb-1 overflow-hidden;
+        }
+
+        .file-grid-item .file-icon i {
+            @apply text-4xl;
+        }
+
+        .file-grid-item .file-icon .fa-folder {
+            @apply text-warning;
+        }
+
+        .file-grid-item .file-icon img {
+            @apply max-w-full max-h-full object-contain rounded;
+        }
+
+        .file-grid-item .file-name {
+            @apply text-xs text-center break-all line-clamp-2 px-1 w-full;
+            min-height: 2rem;
+            line-height: 1rem;
+        }
+
+        .dark .file-grid-item:hover {
+            @apply bg-gray-700;
+        }
+
+        .dark .file-grid-item.selected {
+            @apply bg-gray-600;
+        }
+
+        .shadow-lg {
+            position: absolute;
+            z-index: 9999;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 font-inter text-dark">
+    <div id="upload-manager" class="hidden fixed bottom-4 right-4 w-80 bg-white rounded-lg shadow-lg z-50">
+        <div class="flex justify-between items-center p-3 bg-gray-100 rounded-t-lg cursor-pointer" onclick="toggleUploadManager()">
+            <h3 class="text-sm font-semibold">{{T "upload_tasks"}}</h3>
+            <div class="flex items-center space-x-2">
+                <span id="upload-manager-summary" class="text-xs text-gray-500"></span>
+                <button class="text-gray-500 hover:text-gray-700">
+                    <i class="fa-solid fa-chevron-down"></i>
+                </button>
+                <button class="text-gray-500 hover:text-gray-700" onclick="closeUploadManager(event)">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div id="upload-manager-list" class="hidden p-2 max-h-60 overflow-y-auto"></div>
+    </div>
+    <div class="container mx-auto px-3 py-6" id="main-container">
+        <div class="flex justify-between items-center mb-6">
+            <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-folder-open text-primary text-2xl"></i>
+                <a id="quickfile-title" class="text-xl font-semibold cursor-pointer transition-colors"
+                    style="text-decoration:none;">
+                    {{T "title"}}
+                </a>
+            </div>
+            <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var host = window.location.host;
+                    var hostName = window.location.hostname;
+                    var protocol = window.location.protocol;
+                    let newApiPrefix = window.API_PREFIX.replace(/\/[^/]+\/?$/, '');
+                    var url = protocol + '//' + host + newApiPrefix;
+                    var title = document.getElementById('quickfile-title');
+                    if (title) {
+                        title.href = url;
+                        title.target = "_blank";
+                    }
+                });
+            </script>
+            <div class="flex items-center space-x-4">
+                <div class="relative group" id="lang-switcher">
+                    <button class="flex items-center text-sm text-secondary">
+                        <i class="fa-solid fa-language"></i>
+                        <span class="hidden sm:inline ml-1">
+                            {{if eq .Lang "zh-CN"}}简体中文{{else if eq .Lang "zh-TW"}}繁體中文{{else}}English{{end}}
+                        </span>
+                    </button>
+                    <div class="hidden group-hover:block absolute right-0 mt-0 w-32 bg-white rounded-md shadow-lg z-50 border border-gray-100">
+                        <button onclick="setLanguage('en')" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-t-md">English</button>
+                        <button onclick="setLanguage('zh-CN')" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">简体中文</button>
+                        <button onclick="setLanguage('zh-TW')" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-b-md">繁體中文</button>
+                    </div>
+                </div>
+                <button class="flex items-center text-sm text-secondary" id="show-hidden-btn" onclick="toggleHiddenFiles()">
+                    <i id="show-hidden-icon" class="fa-solid fa-eye-slash"></i>
+                    <span class="hidden sm:inline ml-1">{{T "hidden_files"}}</span>
+                </button>
+                <button class="flex items-center text-sm text-secondary" onclick="refreshList()">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                    <span class="hidden sm:inline ml-1">{{T "refresh"}}</span>
+                </button>
+                <button id="view-toggle-btn" class="flex items-center text-sm text-secondary" onclick="toggleView()">
+                    <i class="fa-solid fa-table-cells-large"></i>
+                    <span class="hidden sm:inline ml-1">{{if eq .Lang "zh-CN"}}平铺{{else if eq .Lang "zh-TW"}}平鋪{{else}}Grid{{end}}</span>
+                </button>
+                <button class="flex items-center text-sm text-secondary" onclick="toggleDarkMode()">
+                    <i class="fa-regular fa-moon"></i>
+                    <span class="hidden sm:inline ml-1">{{T "dark_mode"}}</span>
+                </button>
+            </div>
+        </div>
+
+        <nav class="relative bg-white rounded-lg shadow-sm mb-4 h-10 flex items-center cursor-text transition-all overflow-visible" id="breadcrumb-nav">
+            <ol class="flex items-center text-sm w-full h-full px-4 overflow-hidden" id="breadcrumb"></ol>
+            <input type="text" id="breadcrumb-input"
+                class="bg-transparent border-none text-sm w-full h-full hidden focus:ring-0 px-4 rounded-lg" style="outline:none;" autocomplete="off" />
+            <div id="breadcrumb-autocomplete" class="hidden absolute left-0 top-full mt-1 w-full bg-white rounded-md shadow-lg z-[100] border border-gray-100 max-h-60 overflow-y-auto"></div>
+        </nav>
+
+        <div class="bg-white rounded-lg shadow-sm mb-4 p-3 flex flex-wrap items-center justify-between">
+            <div class="flex flex-wrap items-center gap-2 mb-2 sm:mb-0">
+                <div class="relative" id="upload-dropdown-container">
+                    <button onclick="toggleUploadDropdown()" type="button"
+                        class="btn-hover flex items-center space-x-1 px-3 py-1.5 bg-primary text-white rounded-md text-sm"
+                        id="upload-btn-dropdown" title="{{T "upload"}}">
+                        <i class="fa-solid fa-upload"></i>
+                        <span class="hidden sm:inline">{{T "upload"}}</span>
+                        <i class="fa-solid fa-caret-down ml-1"></i>
+                    </button>
+                    <div id="upload-dropdown-menu"
+                        class="hidden absolute left-0 mt-1 w-36 bg-white rounded-md shadow-lg z-20">
+                        <button id="upload-file-btn"
+                            class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-t-md">
+                            <i class="fa-regular fa-file mr-2"></i>{{T "upload_file"}}
+                        </button>
+                        <button id="upload-folder-btn"
+                            class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-b-md">
+                            <i class="fa-regular fa-folder mr-2"></i>{{T "upload_folder"}}
+                        </button>
+                    </div>
+                </div>
+                <div class="relative" id="new-dropdown-container">
+                    <button onclick="toggleNewDropdown()" type="button"
+                        class="btn-hover flex items-center space-x-1 px-3 py-1.5 bg-gray-100 text-dark rounded-md text-sm"
+                        id="new-btn" title="{{T "new"}}">
+                        <i class="fa-solid fa-plus"></i>
+                        <span class="hidden sm:inline">{{T "new"}}</span>
+                        <i class="fa-solid fa-caret-down ml-1"></i>
+                    </button>
+                    <div id="new-dropdown-menu"
+                        class="hidden absolute left-0 mt-1 w-36 bg-white rounded-md shadow-lg z-10">
+                        <button onclick="showMkdirInput();hideNewDropdown()"
+                            class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-t-md">
+                            <i class="fa-regular fa-folder mr-2"></i>{{T "new_folder"}}
+                        </button>
+                        <button onclick="showCreateFileInput();hideNewDropdown()"
+                            class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-b-md">
+                            <i class="fa-regular fa-file mr-2"></i>{{T "new_file"}}
+                        </button>
+                    </div>
+                </div>
+                <button class="btn-hover flex items-center space-x-1 px-3 py-1.5 bg-gray-100 text-dark rounded-md text-sm" onclick="openTerminalModal()">
+                    <i class="fa-solid fa-terminal"></i>
+                    <span class="hidden md:inline">{{T "terminal"}}</span>
+                </button>
+                <div class="relative" id="archive-dropdown-container">
+                    <button
+                        class="btn-hover flex items-center space-x-1 px-3 py-1.5 bg-gray-100 text-dark rounded-md text-sm disabled:opacity-50"
+                        id="archive-btn" onclick="toggleArchiveDropdown()" disabled title="{{T "compress"}}">
+                        <i class="fa-solid fa-file-zipper"></i>
+                        <span class="hidden md:inline">{{T "compress"}}</span>
+                        <i class="fa-solid fa-caret-down ml-1"></i>
+                    </button>
+                    <div class="hidden absolute left-0 mt-1 w-36 bg-white rounded-md shadow-lg z-10"
+                        id="archive-dropdown-menu">
+                        <button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-t-md"
+                            onclick="openCompressModal('zip')">
+                            <i class="fa-solid fa-file-zipper mr-2"></i>{{T "compress_zip"}}
+                        </button>
+                        <button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            onclick="openCompressModal('tar.gz')">
+                            <i class="fa-solid fa-file-zipper mr-2"></i>{{T "compress_tar_gz"}}
+                        </button>
+                        <button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-b-md"
+                            onclick="openCompressModal('tar.xz')">
+                            <i class="fa-solid fa-file-zipper mr-2"></i>{{T "compress_tar_xz"}}
+                        </button>
+                    </div>
+                </div>
+                <button class="btn-hover flex items-center space-x-1 px-3 py-1.5 bg-gray-100 text-dark rounded-md text-sm"
+                    id="copy-btn" onclick="copyFiles()" title="{{T "copy"}}">
+                    <i class="fa-solid fa-copy"></i>
+                    <span class="hidden lg:inline">{{T "copy"}}</span>
+                </button>
+                <button class="btn-hover flex items-center space-x-1 px-3 py-1.5 bg-gray-100 text-dark rounded-md text-sm"
+                    id="move-btn" onclick="moveFiles()" title="{{T "cut"}}">
+                    <i class="fa-solid fa-scissors"></i>
+                    <span class="hidden lg:inline">{{T "cut"}}</span>
+                </button>
+                <button class="btn-hover flex items-center space-x-1 px-3 py-1.5 bg-gray-100 text-dark rounded-md text-sm"
+                    id="paste-btn" onclick="pasteFiles()" title="{{T "paste"}}">
+                    <i class="fa-solid fa-clipboard"></i>
+                    <span class="hidden lg:inline">{{T "paste"}}</span>
+                </button>
+                <button class="btn-hover flex items-center space-x-1 px-3 py-1.5 bg-gray-100 text-dark rounded-md text-sm"
+                    onclick="showDownloadUrlModal()" title="{{T "download_file"}}">
+                    <i class="fa-solid fa-cloud-arrow-down"></i>
+                    <span class="hidden lg:inline">{{T "download_file"}}</span>
+                </button>
+                <button
+                    class="btn-hover flex items-center space-x-1 px-3 py-1.5 bg-gray-100 text-danger rounded-md text-sm"
+                    id="batch-delete-btn" onclick="batchDeleteFiles()" title="{{T "batch_delete"}}">
+                    <i class="fa-solid fa-trash text-danger"></i>
+                    <span class="hidden md:inline">{{T "batch_delete"}}</span>
+                </button>
+            </div>
+            <div class="relative flex justify-end group flex-grow sm:flex-grow-0">
+                <input type="text" placeholder="{{T "search_placeholder"}}"
+                    class="pl-4 pr-10 py-1.5 rounded-full border border-gray-200 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm w-full sm:w-48 {{if eq .Lang "en"}} {{else}} transition-all duration-300 focus:sm:w-64 {{end}}"
+                    id="search-input">
+                <button class="absolute right-8 top-1.5 text-gray-400 hover:text-primary" id="search-btn" tabindex="-1">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                </button>
+                <button type="button"
+                    class="absolute right-2 top-1.5 text-gray-400 hover:text-danger focus:outline-none"
+                    id="clear-search-btn" style="display:none;" tabindex="-1">
+                    <i class="fa-solid fa-circle-xmark"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="relative bg-white rounded-lg shadow-sm overflow-hidden" id="file-area">
+            <div id="selection-rectangle" class="absolute border border-blue-500 bg-blue-500 bg-opacity-20 pointer-events-none" style="display: none;"></div>
+            <div id="file-grid-view" style="display: none;"></div>
+            <div class="file-area overflow-y-auto" style="max-height: 700px;">
+                <table class="min-w-full divide-y divide-gray-200 table-auto">
+                    <thead class="bg-gray-50 sticky top-0 z-10">
+                        <tr class="shadow-sm">
+                            <th scope="col"
+                                class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors group"
+                                onclick="handleSort('name')">
+                                <div class="flex items-center">
+                                    <input type="checkbox" id="header-checkbox" onclick="event.stopPropagation(); headerCheckboxClick()"
+                                        class="rounded text-primary focus:ring-primary mr-3">
+                                    <span>{{T "name"}}</span>
+                                    <i id="sort-icon-name" class="fa-solid fa-sort ml-1 transition-opacity"></i>
+                                </div>
+                            </th>
+                            <th scope="col"
+                                class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors group"
+                                onclick="handleSort('size')">
+                                <div class="flex items-center">
+                                    <span>{{T "size"}}</span>
+                                    <i id="sort-icon-size" class="fa-solid fa-sort ml-1 transition-opacity"></i>
+                                </div>
+                            </th>
+                            <th scope="col"
+                                class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors group"
+                                onclick="handleSort('modtime')">
+                                <div class="flex items-center">
+                                    <span>{{T "modtime"}}</span>
+                                    <i id="sort-icon-modtime" class="fa-solid fa-sort ml-1 transition-opacity"></i>
+                                </div>
+                            </th>
+                            <th scope="col"
+                                class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                {{T "permission"}}</th>
+                            <th scope="col"
+                                class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                {{T "owner"}}</th>
+                            <th scope="col"
+                                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                {{T "actions"}}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200" id="file-table-body"></tbody>
+                </table>
+            </div>
+
+            <script>
+                function resizeFileArea() {
+                    const fileAreaDivs = document.querySelectorAll('.file-area, #file-grid-view');
+                    const fileAreaContainer = document.getElementById('file-area');
+                    if (!fileAreaContainer) return;
+
+                    const rect = fileAreaContainer.getBoundingClientRect();
+                    const availableHeight = window.innerHeight - rect.top - 24;
+
+                    fileAreaDivs.forEach(fileAreaDiv => {
+                        fileAreaDiv.style.maxHeight = Math.max(300, availableHeight) + 'px';
+                        if (!fileAreaDiv.style.overflowY) {
+                            fileAreaDiv.style.overflowY = 'auto';
+                        }
+                    });
+                }
+
+                document.addEventListener('DOMContentLoaded', function () {
+                    resizeFileArea();
+                    window.addEventListener('resize', resizeFileArea);
+                });
+            </script>
+        </div>
+        <div id="context-menu"
+            class="fixed bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-2 min-w-[150px] hidden"
+            style="min-width: 150px; font-size: 15px;">
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-mkdir">{{T "new_folder"}}</button>
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-createfile">{{T "new_file"}}</button>
+            <div class="border-t my-1"></div>
+            <div class="has-submenu" id="ctx-compress-wrapper">
+                <div class="flex items-center justify-between w-full px-4 py-2 hover:bg-light cursor-pointer">
+                    <span>{{T "compress"}}</span>
+                    <i class="fa-solid fa-chevron-right text-[10px] text-gray-400"></i>
+                </div>
+                <div class="submenu">
+                    <button class="block w-full text-left px-4 py-2 hover:bg-light" onclick="handleCtxCompress('zip')">
+                        <i class="fa-solid fa-file-zipper mr-2"></i>{{T "compress_zip"}}
+                    </button>
+                    <button class="block w-full text-left px-4 py-2 hover:bg-light" onclick="handleCtxCompress('tar.gz')">
+                        <i class="fa-solid fa-file-zipper mr-2"></i>{{T "compress_tar_gz"}}
+                    </button>
+                    <button class="block w-full text-left px-4 py-2 hover:bg-light" onclick="handleCtxCompress('tar.xz')">
+                        <i class="fa-solid fa-file-zipper mr-2"></i>{{T "compress_tar_xz"}}
+                    </button>
+                </div>
+            </div>
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-decompress">{{T "extract"}}</button>
+            <div class="border-t my-1"></div>
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-rename">{{T "rename"}}</button>
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-chmod">{{T "permission"}}</button>
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-copy">{{T "copy"}}</button>
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-move">{{T "cut"}}</button>
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-paste">{{T "paste"}}</button>
+            <div class="border-t my-1"></div>
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-download">{{T "download"}}</button>
+            <button class="block w-full text-left px-4 py-2 hover:bg-light" id="ctx-properties">{{T "properties"}}</button>
+            <button class="block w-full text-left px-4 py-2 text-danger hover:bg-light" id="ctx-delete">{{T "delete"}}</button>
+        </div>
+    </div>
+
+    <div id="properties-modal" class="fixed inset-0 bg-black bg-opacity-50 z-[110] flex items-center justify-center hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg overflow-hidden slide-in">
+            <div class="p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                <h3 class="text-lg font-semibold dark:text-white" id="prop-title">{{T "properties"}}</h3>
+                <button onclick="closePropertiesModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <div class="p-6 space-y-4 text-sm dark:text-gray-300" id="prop-content">
+                <div class="flex">
+                    <span class="w-24 flex-shrink-0 text-gray-500">{{T "name"}}</span>
+                    <span id="prop-name" class="break-all"></span>
+                </div>
+                <div class="flex">
+                    <span class="w-24 flex-shrink-0 text-gray-500">{{T "location"}}</span>
+                    <span id="prop-path" class="break-all"></span>
+                </div>
+                <div id="prop-file-only" class="space-y-4">
+                    <div class="flex">
+                        <span class="w-24 flex-shrink-0 text-gray-500">{{T "type_label"}}</span>
+                        <span id="prop-type"></span>
+                    </div>
+                </div>
+                <div class="flex">
+                    <span class="w-24 flex-shrink-0 text-gray-500">{{T "size"}}</span>
+                    <span id="prop-size"></span>
+                </div>
+                <div id="prop-dir-only" class="hidden">
+                    <div class="flex">
+                        <span class="w-24 flex-shrink-0 text-gray-500">{{T "contains"}}</span>
+                        <span id="prop-contains"></span>
+                    </div>
+                </div>
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-4 space-y-4">
+                    <div class="flex">
+                        <span class="w-24 flex-shrink-0 text-gray-500">{{T "mod_time_label"}}</span>
+                        <span id="prop-mod"></span>
+                    </div>
+                </div>
+                <div id="prop-hashes" class="border-t border-gray-100 dark:border-gray-700 pt-4 space-y-3">
+                    <div class="flex items-center">
+                        <span class="w-24 flex-shrink-0 text-gray-500">MD5</span>
+                        <div id="prop-md5-container" class="flex-grow flex items-center">
+                            <button onclick="calculateHash('md5')" id="md5-btn" class="text-primary hover:underline text-xs">{{T "calculate"}}</button>
+                            <span id="prop-md5" class="hidden font-mono text-xs break-all bg-gray-50 dark:bg-gray-900 p-1 rounded w-full"></span>
+                        </div>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="w-24 flex-shrink-0 text-gray-500">SHA256</span>
+                        <div id="prop-sha256-container" class="flex-grow flex items-center">
+                            <button onclick="calculateHash('sha256')" id="sha256-btn" class="text-primary hover:underline text-xs">{{T "calculate"}}</button>
+                            <span id="prop-sha256" class="hidden font-mono text-xs break-all bg-gray-50 dark:bg-gray-900 p-1 rounded w-full"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 bg-gray-50 dark:bg-gray-700/50 flex justify-end">
+                <button onclick="closePropertiesModal()" class="px-6 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors">{{T "ok"}}</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center hidden fade-in"
+        id="player-modal">
+        <button onclick="closePlayer()" class="absolute top-2 right-2 text-white text-2xl z-20">
+            <i class="fa-solid fa-times"></i>
+        </button>
+        <div id="player-container" class="flex justify-center items-center"></div>
+        <div class="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center space-y-2 z-20 w-[400px] max-w-[90vw]">
+            <div class="flex items-center justify-center text-white bg-black/40 rounded-full p-1 w-full">
+                <button id="player-prev-btn" onclick="playPrevVideo()"
+                    class="w-10 h-10 flex-shrink-0 flex items-center justify-center hover:bg-black/60 disabled:opacity-20 disabled:cursor-not-allowed rounded-full text-white text-2xl"
+                    style="user-select:none;">
+                    <i class="fa-solid fa-chevron-left" style="margin:0;line-height:1;"></i>
+                </button>
+                <div id="player-file-name" class="flex-grow text-center truncate px-4"></div>
+                <button id="player-next-btn" onclick="playNextVideo()"
+                    class="w-10 h-10 flex-shrink-0 flex items-center justify-center hover:bg-black/60 disabled:opacity-20 disabled:cursor-not-allowed rounded-full text-white text-2xl"
+                    style="user-select:none;">
+                    <i class="fa-solid fa-chevron-right" style="margin:0;line-height:1;"></i>
+                </button>
+            </div>
+            <label class="flex items-center text-white text-xs bg-black/40 px-3 py-1 rounded-full cursor-pointer hover:bg-black/60 transition-colors">
+                <input type="checkbox" id="auto-play-next" class="mr-2" onchange="toggleAutoPlayNext()">
+                <span>{{T "auto_play_next"}}</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="fixed z-[60] hidden flex flex-col shadow-[0_0_20px_rgba(0,0,0,0.5)] rounded-lg border border-[#444746] bg-[#1e1f20] overflow-hidden"
+         id="editor-modal"
+         style="transition: width 0.2s, height 0.2s, top 0.2s, left 0.2s;">
+        <div id="editor-header" class="p-2 flex justify-between items-center bg-[#2d2e30] cursor-move select-none border-b border-[#444746]">
+            <h3 class="font-semibold text-[#e3e3e3] text-sm pl-2" id="editor-filename"></h3>
+            <div class="flex items-center space-x-3 pr-1">
+                <button onclick="minimizeEditor()" class="text-gray-400 hover:text-white" title="{{T "minimize"}}">
+                    <i class="fa-solid fa-minus"></i>
+                </button>
+                <button onclick="toggleMaximizeEditor()" class="text-gray-400 hover:text-white" title="{{T "maximize"}}">
+                    <i id="editor-max-icon" class="fa-solid fa-expand"></i>
+                </button>
+                <button onclick="closeEditorModal()" class="text-gray-400 hover:text-white" title="{{T "close"}}">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div id="editor-body" class="flex-grow flex flex-col overflow-hidden bg-[#1e1f20]">
+            <div class="flex-grow p-2 overflow-hidden flex flex-col">
+                <div id="editor-monaco" class="w-full h-full border border-[#444746] rounded"></div>
+            </div>
+            <div class="p-3 flex justify-between items-center border-t border-[#444746]">
+                <div id="editor-msg" class="text-success text-sm fade-in hidden"></div>
+                <div class="flex space-x-3 ml-auto">
+                    <button class="px-3 py-2 bg-[#333537] text-[#e3e3e3] rounded hover:bg-[#3c3f41] transition-colors"
+                        onclick="closeEditorModal()">{{T "cancel"}}</button>
+                    <button class="px-3 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors flex items-center space-x-1"
+                        onclick="saveEditFile()" id="editor-save-btn">
+                        <span>{{T "save"}}</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center hidden fade-in"
+        id="image-preview-modal">
+        <button onclick="closeImagePreview(); event.stopPropagation();" class="absolute top-2 right-2 text-white text-2xl z-20">
+            <i class="fa-solid fa-times"></i>
+        </button>
+        <img id="preview-image" src="" alt="{{T "image_preview"}}" class="max-w-[90vw] max-h-[80vh] rounded-xl shadow-xl transform-gpu cursor-zoom-in" style="transition: transform 0.2s ease-out;" onclick="event.stopPropagation()" />
+        <div class="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center justify-center text-white bg-black/40 rounded-full p-1 z-20 w-[400px] max-w-[90vw]" onclick="event.stopPropagation()">
+            <button id="preview-prev-btn" onclick="previewPrevImage()"
+                class="w-10 h-10 flex-shrink-0 flex items-center justify-center hover:bg-black/60 disabled:opacity-20 disabled:cursor-not-allowed rounded-full text-white text-2xl"
+                style="user-select:none;">
+                <i class="fa-solid fa-chevron-left" style="margin:0;line-height:1;"></i>
+            </button>
+            <div id="image-preview-name" class="flex-grow text-center truncate px-4"></div>
+            <button id="preview-next-btn" onclick="previewNextImage()"
+                class="w-10 h-10 flex-shrink-0 flex items-center justify-center hover:bg-black/60 disabled:opacity-20 disabled:cursor-not-allowed rounded-full text-white text-2xl"
+                style="user-select:none;">
+                <i class="fa-solid fa-chevron-right" style="margin:0;line-height:1;"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden fade-in"
+        id="chmod-modal">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg overflow-hidden fade-in">
+            <div class="p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                <h3 class="text-lg font-semibold dark:text-white">{{T "permission"}}</h3>
+                <button onclick="closeChmodModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+
+            <form onsubmit="doChmodChown();return false;">
+                <div class="p-6 space-y-4 text-sm dark:text-gray-300">
+                    <span id="chmod-filename" class="hidden"></span>
+                    <div class="grid grid-cols-2 gap-x-4 gap-y-3 items-center">
+                        <!-- Owner Permissions -->
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{T "owner_permission"}}</span>
+                        <div class="flex items-center space-x-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="owner-read" class="rounded text-primary focus:ring-primary permission-cb" data-permission="400">
+                                <span class="ml-2 text-sm">{{T "read"}}</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="owner-write" class="rounded text-primary focus:ring-primary permission-cb" data-permission="200">
+                                <span class="ml-2 text-sm">{{T "write"}}</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="owner-exec" class="rounded text-primary focus:ring-primary permission-cb" data-permission="100">
+                                <span class="ml-2 text-sm">{{T "execute"}}</span>
+                            </label>
+                        </div>
+
+                        <!-- Group Permissions -->
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{T "group_permission"}}</span>
+                        <div class="flex items-center space-x-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="group-read" class="rounded text-primary focus:ring-primary permission-cb" data-permission="040">
+                                <span class="ml-2 text-sm">{{T "read"}}</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="group-write" class="rounded text-primary focus:ring-primary permission-cb" data-permission="020">
+                                <span class="ml-2 text-sm">{{T "write"}}</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="group-exec" class="rounded text-primary focus:ring-primary permission-cb" data-permission="010">
+                                <span class="ml-2 text-sm">{{T "execute"}}</span>
+                            </label>
+                        </div>
+
+                        <!-- Other Permissions -->
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{T "others_permission"}}</span>
+                        <div class="flex items-center space-x-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="other-read" class="rounded text-primary focus:ring-primary permission-cb" data-permission="004">
+                                <span class="ml-2 text-sm">{{T "read"}}</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="other-write" class="rounded text-primary focus:ring-primary permission-cb" data-permission="002">
+                                <span class="ml-2 text-sm">{{T "write"}}</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="other-exec" class="rounded text-primary focus:ring-primary permission-cb" data-permission="001">
+                                <span class="ml-2 text-sm">{{T "execute"}}</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-gray-100 dark:border-gray-700 pt-4">
+                        <div class="grid grid-cols-2 gap-x-4 items-center">
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{T "permission"}}</span>
+                            <input type="text" id="chmod-input" class="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary" maxlength="4">
+                        </div>
+                    </div>
+                    
+                    <div id="recursive-chmod-container" class="hidden pt-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="recursive-chmod" class="rounded text-primary focus:ring-primary">
+                            <span class="ml-2 text-sm">{{T "chmod_recursive"}}</span>
+                        </label>
+                    </div>
+
+                    <div class="border-t border-gray-100 dark:border-gray-700 pt-4 space-y-3">
+                        <div class="grid grid-cols-2 gap-x-4 items-center">
+                            <label for="owner-input" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{T "user"}}</label>
+                            <input type="text"
+                                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                                id="owner-input" placeholder="{{T "user"}}">
+                        </div>
+                        <div class="grid grid-cols-2 gap-x-4 items-center mt-2">
+                            <label for="group-input" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{T "group_label"}}</label>
+                            <input type="text"
+                                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                                id="group-input" placeholder="{{T "group_label"}} ({{T "optional"}})">
+                        </div>
+                    </div>
+
+                    <div id="chmod-msg" class="text-danger text-sm mt-4 hidden"></div>
+                </div>
+
+                <div class="p-4 bg-gray-50 dark:bg-gray-700/50 flex justify-end space-x-3">
+                    <button type="button" onclick="closeChmodModal()" class="px-6 py-2 bg-gray-100 dark:bg-gray-600 text-dark dark:text-white rounded hover:bg-gray-200 dark:hover:bg-gray-500 transition-colors">{{T "cancel"}}</button>
+                    <button type="submit" class="px-6 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors">{{T "ok"}}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden fade-in"
+        id="custom-confirm-modal">
+        <div class="bg-white rounded-lg shadow-modal w-full max-w-md p-6 fade-in">
+            <div class="text-center mb-6">
+                <div
+                    class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-danger/10 text-danger mb-4">
+                    <i class="fa-solid fa-triangle-exclamation text-xl"></i>
+                </div>
+                <h3 class="text-lg font-semibold" id="custom-confirm-title">{{T "confirm"}}</h3>
+                <p class="text-gray-600 mt-2" id="custom-confirm-message"></p>
+            </div>
+            <div class="flex justify-center space-x-4">
+                <button class="px-6 py-2.5 bg-gray-100 text-dark rounded hover:bg-gray-200 transition-colors"
+                    id="custom-confirm-cancel">{{T "cancel"}}</button>
+                <button class="px-6 py-2.5 bg-danger text-white rounded hover:bg-danger/90 transition-colors"
+                    id="custom-confirm-ok">{{T "ok"}}</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden fade-in"
+        id="custom-alert-modal">
+        <div class="bg-white rounded-lg shadow-modal w-full max-w-md p-6 fade-in">
+            <div class="text-center mb-6">
+                <div
+                    class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-warning/10 text-warning mb-4">
+                    <i class="fa-solid fa-circle-info text-xl"></i>
+                </div>
+                <h3 class="text-lg font-semibold" id="custom-alert-title">{{T "error"}}</h3>
+                <p class="text-gray-600 mt-2" id="custom-alert-message"></p>
+            </div>
+            <div class="flex justify-center space-x-4">
+                <button class="px-6 py-2.5 bg-primary text-white rounded hover:bg-primary/90 transition-colors"
+                    id="custom-alert-ok">{{T "ok"}}</button>
+            </div>
+        </div>
+    </div>
+
+
+
+    <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden fade-in"
+        id="download-url-modal">
+        <div class="bg-white rounded-lg shadow-modal w-full max-w-md p-6 fade-in">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{T "url_label"}}</label>
+                <input type="text" id="download-url-input"
+                    class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{T "save_filename"}}</label>
+                <input type="text" id="download-filename-input"
+                    class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+            </div>
+            <div id="download-progress-bar" class="w-full bg-gray-200 rounded h-3 mb-4" style="display:none;">
+                <div id="download-progress-inner" class="bg-primary h-3 rounded progress-animate" style="width:0%">
+                </div>
+            </div>
+            <div id="download-progress-text" class="mb-2 text-sm"></div>
+            <div class="flex justify-end space-x-3" id="download-url-actions">
+                <div id="download-initial-buttons" class="flex space-x-3">
+                    <button class="px-3 py-2 bg-gray-100 text-dark rounded hover:bg-gray-200 transition-colors"
+                        onclick="closeDownloadUrlModal()">{{T "cancel"}}</button>
+                    <button class="px-3 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors"
+                        onclick="startDownloadUrl()">{{T "download_file"}}</button>
+                </div>
+                <div id="download-progress-buttons" class="flex space-x-3" style="display: none;">
+                    <button onclick="cancelDownload()"
+                        class="px-3 py-2 bg-danger text-white rounded hover:bg-danger/90 transition-colors">{{T "cancel_download"}}</button>
+                    <button onclick="closeDownloadUrlModal()"
+                        class="px-3 py-2 bg-gray-100 text-dark rounded hover:bg-gray-200 transition-colors">{{T "background_download"}}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden fade-in"
+        id="compress-modal">
+        <div class="bg-white rounded-lg shadow-modal w-full max-w-md p-6 fade-in">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{T "compression_name"}}</label>
+                <input id="compress-name-input"
+                    class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    type="text" />
+            </div>
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeCompressModal()"
+                    class="px-3 py-2 bg-gray-100 text-dark rounded hover:bg-gray-200 transition-colors">{{T "cancel"}}</button>
+                <button onclick="startCompress()"
+                    class="px-3 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors">{{T "start_compression"}}</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden fade-in"
+        id="compress-progress-modal">
+        <div class="bg-white rounded-lg shadow-modal w-full max-w-md p-6 fade-in">
+            <div class="text-center mb-4">
+                <div
+                    class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 text-primary mb-4">
+                    <i class="fa-solid fa-gear fa-spin text-xl"></i>
+                </div>
+                <h3 class="text-lg font-semibold" id="progress-title">{{T "processing"}}</h3>
+                <p class="text-gray-600 mt-2" id="progress-message">{{T "please_wait"}}</p>
+            </div>
+            <div class="flex justify-center">
+                <button class="px-6 py-2.5 bg-primary text-white rounded hover:bg-primary/90 transition-colors hidden"
+                    id="progress-ok" onclick="closeProgressModal()">{{T "finished"}}</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed z-[60] hidden flex flex-col shadow-[0_0_20px_rgba(0,0,0,0.5)] rounded-lg border border-[#444746] bg-[#1e1f20] overflow-hidden" 
+         id="terminal-modal" 
+         style="transition: width 0.2s, height 0.2s, top 0.2s, left 0.2s;">
+        <div id="terminal-header" class="p-2 flex justify-between items-center bg-[#2d2e30] cursor-move select-none border-b border-[#444746]">
+            <h3 class="font-semibold text-[#e3e3e3] text-sm pl-2" id="terminal-title">{{T "terminal"}}</h3>
+            <div class="flex items-center space-x-3 pr-1">
+                <button onclick="minimizeTerminal()" class="text-gray-400 hover:text-white" title="{{T "minimize"}}">
+                    <i class="fa-solid fa-minus"></i>
+                </button>
+                <button onclick="toggleMaximizeTerminal()" class="text-gray-400 hover:text-white" title="{{T "maximize"}}">
+                    <i id="term-max-icon" class="fa-solid fa-expand"></i>
+                </button>
+                <button onclick="closeTerminalModal()" class="text-gray-400 hover:text-white" title="{{T "close"}}">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div id="terminal-body" class="flex-grow p-2 overflow-hidden bg-[#1e1f20]">
+            <div id="terminal-container" class="w-full h-full rounded overflow-hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        let term, term_ws, fitAddon;
+
+        window.addEventListener('resize', () => {
+            if (term && fitAddon && !document.getElementById('terminal-modal').classList.contains('hidden')) {
+                fitAddon.fit();
+            }
+        });
+
+        function openTerminalModal() {
+            const modal = document.getElementById('terminal-modal');
+            modal.classList.remove('hidden');
+
+            if (!term) {
+                // Initialize size and position only on first open
+                const w = Math.min(800, window.innerWidth * 0.9);
+                const h = Math.min(500, window.innerHeight * 0.8);
+                modal.style.width = w + 'px';
+                modal.style.height = h + 'px';
+                modal.style.left = (window.innerWidth - w) / 2 + 'px';
+                modal.style.top = (window.innerHeight - h) / 2 + 'px';
+
+                term = new Terminal({
+                    cursorBlink: true,
+                    fontFamily: '"Cascadia Code", Menlo, Monaco, "Courier New", monospace',
+                    fontSize: 14,
+                    theme: {
+                        background: '#1e1f20',
+                        foreground: '#e3e3e3',
+                        cursor: '#e3e3e3',
+                    }
+                });
+
+                fitAddon = new FitAddon.FitAddon();
+                term.loadAddon(fitAddon);
+                term.open(document.getElementById('terminal-container'));
+                fitAddon.fit();
+
+                const urlParams = new URLSearchParams(window.location.search);
+                const hostParam = urlParams.get('host');
+
+                const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+                // Connect to the public-facing Nginx path
+                const wsUrl = `${protocol}://${window.location.host}${window.API_PREFIX}terminal?dir=${encodeURIComponent(curDir)}&cols=${term.cols}&rows=${term.rows}`;
+                term_ws = new WebSocket(wsUrl);
+                term_ws.onclose = () => {
+                    closeTerminalModal();
+                };
+
+                const attachAddon = new AttachAddon.AttachAddon(term_ws);
+                term.loadAddon(attachAddon);
+
+                // Add custom key event handler for Ctrl+Shift+C and Ctrl+Shift+V
+                term.attachCustomKeyEventHandler((ev) => {
+                    if (ev.ctrlKey && !ev.shiftKey && ev.key.toUpperCase() === 'D') {
+                        if (ev.type === 'keydown') {
+                            if (term_ws && term_ws.readyState === WebSocket.OPEN) {
+                                term_ws.send('\x04');
+                            }
+                        }
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        return false;
+                    }
+
+                    if (ev.ctrlKey && ev.shiftKey && (ev.key.toUpperCase() === 'C' || ev.key.toUpperCase() === 'V')) {
+                        if (ev.type === 'keydown') {
+                            const key = ev.key.toUpperCase();
+                            if (key === 'C') {
+                                const selection = term.getSelection();
+                                if (selection) {
+                                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                                        navigator.clipboard.writeText(selection).catch(err => console.error('Clipboard write error:', err));
+                                    } else {
+                                        const textArea = document.createElement("textarea");
+                                        textArea.value = selection;
+                                        textArea.style.position = "fixed";
+                                        document.body.appendChild(textArea);
+                                        textArea.focus();
+                                        textArea.select();
+                                        try { document.execCommand('copy'); } catch (err) { console.error('Fallback copy error:', err); }
+                                        document.body.removeChild(textArea);
+                                        term.focus();
+                                    }
+                                }
+                            } else if (key === 'V') {
+                                navigator.clipboard.readText().then(text => {
+                                    if (term_ws && term_ws.readyState === WebSocket.OPEN) {
+                                        term_ws.send(text);
+                                    }
+                                });
+                                ev.preventDefault();
+                                return false;
+                            }
+                        }
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        return false;
+                    }
+                    return true;
+                });
+
+                term.onResize(size => {
+                    if (term_ws && term_ws.readyState === WebSocket.OPEN) {
+                        term_ws.send(JSON.stringify({ type: 'xterm-resize', cols: size.cols, rows: size.rows }));
+                    }
+                });
+            }
+        }
+
+        function closeTerminalModal() {
+            const modal = document.getElementById('terminal-modal');
+            if (term_ws) {
+                term_ws.onclose = null;
+                if (term_ws.readyState === WebSocket.OPEN) {
+                    term_ws.send('\x04'); // Send Ctrl+D to close the shell
+                }
+                term_ws.close();
+                term_ws = null;
+            }
+            if (term) {
+                term.dispose();
+                term = null;
+            }
+            modal.classList.add('hidden');
+        }
+
+        let isDraggingTerminal = false;
+        let dragStartX, dragStartY;
+        let initialModalLeft, initialModalTop;
+
+        const terminalHeader = document.getElementById('terminal-header');
+        const terminalModal = document.getElementById('terminal-modal');
+
+        terminalHeader.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'I') return;
+            if (isTerminalMaximized) return;
+
+            isDraggingTerminal = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            const rect = terminalModal.getBoundingClientRect();
+            initialModalLeft = rect.left;
+            initialModalTop = rect.top;
+            
+            terminalModal.style.transition = 'none';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDraggingTerminal) {
+                const dx = e.clientX - dragStartX;
+                const dy = e.clientY - dragStartY;
+                terminalModal.style.left = initialModalLeft + dx + 'px';
+                terminalModal.style.top = initialModalTop + dy + 'px';
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDraggingTerminal) {
+                isDraggingTerminal = false;
+                terminalModal.style.transition = 'width 0.2s, height 0.2s, top 0.2s, left 0.2s';
+            }
+        });
+
+        let isTerminalMinimized = false;
+        let preMinHeight = '';
+        let preMinWidth = '';
+        function minimizeTerminal() {
+            if (isTerminalMaximized) {
+                toggleMaximizeTerminal();
+                setTimeout(minimizeTerminal, 250);
+                return;
+            }
+            const body = document.getElementById('terminal-body');
+            if (!isTerminalMinimized) {
+                preMinHeight = terminalModal.style.height;
+                preMinWidth = terminalModal.style.width;
+                terminalModal.style.height = terminalHeader.offsetHeight + 'px';
+                terminalModal.style.width = '240px';
+                body.style.display = 'none';
+                isTerminalMinimized = true;
+            } else {
+                terminalModal.style.height = preMinHeight;
+                terminalModal.style.width = preMinWidth;
+                body.style.display = 'block';
+                isTerminalMinimized = false;
+                setTimeout(() => fitAddon && fitAddon.fit(), 200);
+            }
+        }
+
+        let isTerminalMaximized = false;
+        let preMaxLeft, preMaxTop, preMaxWidth, preMaxHeight;
+        function toggleMaximizeTerminal() {
+            const icon = document.getElementById('term-max-icon');
+            if (!isTerminalMaximized) {
+                if (isTerminalMinimized) minimizeTerminal();
+                
+                preMaxLeft = terminalModal.style.left;
+                preMaxTop = terminalModal.style.top;
+                preMaxWidth = terminalModal.style.width;
+                preMaxHeight = terminalModal.style.height;
+
+                terminalModal.style.left = '0px';
+                terminalModal.style.top = '0px';
+                terminalModal.style.width = '100vw';
+                terminalModal.style.height = '100vh';
+                
+                icon.className = 'fa-solid fa-compress';
+                isTerminalMaximized = true;
+            } else {
+                terminalModal.style.left = preMaxLeft;
+                terminalModal.style.top = preMaxTop;
+                terminalModal.style.width = preMaxWidth;
+                terminalModal.style.height = preMaxHeight;
+
+                icon.className = 'fa-solid fa-expand';
+                isTerminalMaximized = false;
+            }
+            
+            setTimeout(() => {
+                if (term && fitAddon) fitAddon.fit();
+            }, 250);
+        }
+
+        let isDraggingEditor = false;
+        let dragStartEditorX, dragStartEditorY;
+        let initialEditorModalLeft, initialEditorModalTop;
+
+        const editorHeader = document.getElementById('editor-header');
+        const editorModal = document.getElementById('editor-modal');
+
+        if (editorHeader) {
+            editorHeader.addEventListener('mousedown', (e) => {
+                if (e.target.tagName === 'BUTTON' || e.target.tagName === 'I') return;
+                if (isEditorMaximized) return;
+
+                isDraggingEditor = true;
+                dragStartEditorX = e.clientX;
+                dragStartEditorY = e.clientY;
+                const rect = editorModal.getBoundingClientRect();
+                initialEditorModalLeft = rect.left;
+                initialEditorModalTop = rect.top;
+
+                editorModal.style.transition = 'none';
+            });
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDraggingTerminal) {
+                const dx = e.clientX - dragStartX;
+                const dy = e.clientY - dragStartY;
+                terminalModal.style.left = initialModalLeft + dx + 'px';
+                terminalModal.style.top = initialModalTop + dy + 'px';
+            }
+            if (isDraggingEditor) {
+                const dx = e.clientX - dragStartEditorX;
+                const dy = e.clientY - dragStartEditorY;
+                editorModal.style.left = initialEditorModalLeft + dx + 'px';
+                editorModal.style.top = initialEditorModalTop + dy + 'px';
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDraggingTerminal) {
+                isDraggingTerminal = false;
+                terminalModal.style.transition = 'width 0.2s, height 0.2s, top 0.2s, left 0.2s';
+            }
+            if (isDraggingEditor) {
+                isDraggingEditor = false;
+                editorModal.style.transition = 'width 0.2s, height 0.2s, top 0.2s, left 0.2s';
+            }
+        });
+
+        let isEditorMinimized = false;
+        let preEditorMinHeight = '';
+        let preEditorMinWidth = '';
+        function minimizeEditor() {
+            if (isEditorMaximized) {
+                toggleMaximizeEditor();
+                setTimeout(minimizeEditor, 250);
+                return;
+            }
+            const body = document.getElementById('editor-body');
+            if (!isEditorMinimized) {
+                preEditorMinHeight = editorModal.style.height;
+                preEditorMinWidth = editorModal.style.width;
+                editorModal.style.height = editorHeader.offsetHeight + 'px';
+                editorModal.style.width = '240px';
+                body.style.display = 'none';
+                isEditorMinimized = true;
+            } else {
+                editorModal.style.height = preEditorMinHeight;
+                editorModal.style.width = preEditorMinWidth;
+                body.style.display = 'flex';
+                isEditorMinimized = false;
+                setTimeout(() => window.monacoInstance && window.monacoInstance.layout(), 200);
+            }
+        }
+
+        let isEditorMaximized = false;
+        let preEditorMaxLeft, preEditorMaxTop, preEditorMaxWidth, preEditorMaxHeight;
+        function toggleMaximizeEditor() {
+            const icon = document.getElementById('editor-max-icon');
+            if (!isEditorMaximized) {
+                if (isEditorMinimized) minimizeEditor();
+
+                preEditorMaxLeft = editorModal.style.left;
+                preEditorMaxTop = editorModal.style.top;
+                preEditorMaxWidth = editorModal.style.width;
+                preEditorMaxHeight = editorModal.style.height;
+
+                editorModal.style.left = '0px';
+                editorModal.style.top = '0px';
+                editorModal.style.width = '100vw';
+                editorModal.style.height = '100vh';
+
+                icon.className = 'fa-solid fa-compress';
+                isEditorMaximized = true;
+            } else {
+                editorModal.style.left = preEditorMaxLeft;
+                editorModal.style.top = preEditorMaxTop;
+                editorModal.style.width = preEditorMaxWidth;
+                editorModal.style.height = preEditorMaxHeight;
+
+                icon.className = 'fa-solid fa-expand';
+                isEditorMaximized = false;
+            }
+
+            setTimeout(() => {
+                if (window.monacoInstance) window.monacoInstance.layout();
+            }, 250);
+        }
+    </script>
+
+    <div class="fixed z-[70] hidden flex flex-col shadow-[0_4px_30px_rgba(0,0,0,0.5)] rounded-lg border border-[#444746] bg-[#1e1f20] overflow-hidden"
+         id="audio-modal"
+         style="transition: width 0.2s, height 0.2s, top 0.2s, left 0.2s; width: 360px; height: 600px; top: 10vh; left: calc(50vw - 180px);">
+        <div id="audio-header" class="p-2 flex justify-between items-center bg-[#2d2e30] cursor-move select-none border-b border-[#444746]">
+            <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-music text-primary pl-1"></i>
+                <h3 class="font-semibold text-[#e3e3e3] text-sm" id="audio-modal-title">{{T "audio_player"}}</h3>
+            </div>
+            <div class="flex items-center space-x-3 pr-1">
+                <button onclick="minimizeAudio()" class="text-gray-400 hover:text-white" title="{{T "minimize"}}">
+                    <i class="fa-solid fa-minus"></i>
+                </button>
+                <button onclick="toggleMaximizeAudio()" class="text-gray-400 hover:text-white" title="{{T "maximize"}}">
+                    <i id="audio-max-icon" class="fa-solid fa-expand"></i>
+                </button>
+                <button onclick="closeAudioModal()" class="text-gray-400 hover:text-white" title="{{T "close"}}">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div id="audio-body" class="flex-grow flex flex-col overflow-hidden bg-[#1e1f20] text-gray-200">
+            <!-- Modern Audio Player UI -->
+            <div class="p-4 flex flex-col h-full">
+
+                <!-- Artwork -->
+                <div class="flex-shrink-0 flex justify-center items-center h-40 bg-[#2d2e30] rounded-xl shadow-inner mb-4 overflow-hidden relative">
+                    <i class="fa-solid fa-compact-disc text-6xl text-gray-500" id="audio-vinyl"></i>
+                    <!-- loop mode icon top right -->
+                    <button id="audio-loop-btn" class="absolute top-3 right-3 w-8 h-8 flex justify-center items-center rounded-full bg-black/30 text-gray-300 hover:text-white hover:bg-black/60 transition-colors" onclick="toggleAudioLoop()" title="{{T "loop_list"}}">
+                    </button>
+                </div>
+
+                <div class="text-center mb-4">
+                    <div id="audio-title" class="font-semibold text-sm truncate px-2 text-primary">{{T "no_song_selected"}}</div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="mb-4">
+                    <input type="range" id="audio-progress" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer" value="0" min="0" max="100" step="0.1">
+                    <div class="flex justify-between text-xs text-gray-400 mt-1">
+                        <span id="audio-time-current">0:00</span>
+                        <span id="audio-time-total">0:00</span>
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div style="display: flex; justify-content: center; align-items: center; gap: 6rem; margin-bottom: 1rem;">
+                    <button class="text-gray-400 hover:text-white transition-colors hover:scale-110 transform" onclick="playAudioPrev()" style="width: 48px; height: 48px; display: flex; justify-content: center; align-items: center; font-size: 1.25rem; cursor: pointer; flex-shrink: 0;">
+                        <i class="fa-solid fa-step-backward"></i>
+                    </button>
+                    <button class="bg-primary hover:bg-primary/80 text-white shadow-lg transition-transform hover:scale-105" id="audio-play-btn" onclick="toggleAudioPlay()" style="width: 56px; height: 56px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 1.25rem; cursor: pointer; flex-shrink: 0;">
+                        <i class="fa-solid fa-play ml-1"></i>
+                    </button>
+                    <button class="text-gray-400 hover:text-white transition-colors hover:scale-110 transform" onclick="playAudioNext()" style="width: 48px; height: 48px; display: flex; justify-content: center; align-items: center; font-size: 1.25rem; cursor: pointer; flex-shrink: 0;">
+                        <i class="fa-solid fa-step-forward"></i>
+                    </button>
+                </div>
+
+                <!-- Volume -->
+                <div class="flex items-center space-x-3 px-2 mb-4">
+                    <i class="fa-solid fa-volume-low text-gray-400 text-xs"></i>
+                    <input type="range" id="audio-volume" class="flex-grow h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer" value="100" min="0" max="100">
+                    <i class="fa-solid fa-volume-high text-gray-400 text-xs"></i>
+                </div>
+
+                <!-- Playlist -->
+                <div class="flex-grow overflow-y-auto border-t border-[#444746] pt-2" id="audio-playlist" style="min-height: 80px;">
+                    <!-- playlist items -->
+                </div>
+
+            </div>
+            <audio id="audio-html5" class="hidden"></audio>
+        </div>
+    </div>
+
+    <script>
+        let isDraggingAudio = false;
+        let dragStartAudioX, dragStartAudioY;
+        let initialAudioModalLeft, initialAudioModalTop;
+
+        const audioHeader = document.getElementById('audio-header');
+        const audioModal = document.getElementById('audio-modal');
+
+        if (audioHeader) {
+            audioHeader.addEventListener('mousedown', (e) => {
+                if (e.target.tagName === 'BUTTON' || e.target.tagName === 'I') return;
+                if (isAudioMaximized) return;
+
+                isDraggingAudio = true;
+                dragStartAudioX = e.clientX;
+                dragStartAudioY = e.clientY;
+                const rect = audioModal.getBoundingClientRect();
+                initialAudioModalLeft = rect.left;
+                initialAudioModalTop = rect.top;
+
+                audioModal.style.transition = 'none';
+            });
+        }
+
+        // Enhance existing mousemove listener for audio window
+        const oldMousemove = window.onmousemove;
+        window.addEventListener('mousemove', (e) => {
+            if (isDraggingAudio) {
+                const dx = e.clientX - dragStartAudioX;
+                const dy = e.clientY - dragStartAudioY;
+                audioModal.style.left = initialAudioModalLeft + dx + 'px';
+                audioModal.style.top = initialAudioModalTop + dy + 'px';
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDraggingAudio) {
+                isDraggingAudio = false;
+                audioModal.style.transition = 'width 0.2s, height 0.2s, top 0.2s, left 0.2s';
+            }
+        });
+
+        let isAudioMinimized = false;
+        let preAudioMinHeight = '';
+        let preAudioMinWidth = '';
+        function minimizeAudio() {
+            if (isAudioMaximized) {
+                toggleMaximizeAudio();
+                setTimeout(minimizeAudio, 250);
+                return;
+            }
+            const body = document.getElementById('audio-body');
+            if (!isAudioMinimized) {
+                preAudioMinHeight = audioModal.style.height;
+                preAudioMinWidth = audioModal.style.width;
+                audioModal.style.height = audioHeader.offsetHeight + 'px';
+                audioModal.style.width = '240px';
+                body.style.display = 'none';
+                isAudioMinimized = true;
+            } else {
+                audioModal.style.height = preAudioMinHeight;
+                audioModal.style.width = preAudioMinWidth;
+                body.style.display = 'flex';
+                isAudioMinimized = false;
+            }
+        }
+
+        let isAudioMaximized = false;
+        let preAudioMaxLeft, preAudioMaxTop, preAudioMaxWidth, preAudioMaxHeight;
+        function toggleMaximizeAudio() {
+            const icon = document.getElementById('audio-max-icon');
+            if (!isAudioMaximized) {
+                if (isAudioMinimized) minimizeAudio();
+
+                preAudioMaxLeft = audioModal.style.left;
+                preAudioMaxTop = audioModal.style.top;
+                preAudioMaxWidth = audioModal.style.width;
+                preAudioMaxHeight = audioModal.style.height;
+
+                audioModal.style.left = '0px';
+                audioModal.style.top = '0px';
+                audioModal.style.width = '100vw';
+                audioModal.style.height = '100vh';
+
+                icon.className = 'fa-solid fa-compress';
+                isAudioMaximized = true;
+            } else {
+                audioModal.style.left = preAudioMaxLeft;
+                audioModal.style.top = preAudioMaxTop;
+                audioModal.style.width = preAudioMaxWidth;
+                audioModal.style.height = preAudioMaxHeight;
+
+                icon.className = 'fa-solid fa-expand';
+                isAudioMaximized = false;
+            }
+        }
+    </script>
+
+    <script src="{{.StaticPrefix}}quickfile.js"></script>
+</body>
+
+</html>
